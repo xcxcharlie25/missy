@@ -1,7 +1,5 @@
 # =============================================================================
-# PHARMACY NETWORK MODEL  ·  PART 1 (REAL DATA)  ·  ONE FILE: REAL FILLS, SYNTHETIC FOR WHAT IS STILL TO COME
-# Pranshi Saxena  ·  Optum Rx Quantum Initiative
-#
+
 # One file. Needs nothing else: no pnm_data.py, no ZIP file. Put it in a folder with your fill file and run
 #   python pnm_data_real.py                  builds the tables, prints the report, writes exports_real/
 # Quick test, 300 members, in PowerShell:   $env:PNM_SMOKE = "1"   then   python pnm_data_real.py
