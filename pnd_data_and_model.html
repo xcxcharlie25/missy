@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pharmacy Network Design: Data and Model</title>
+<style>
+  :root {
+    color-scheme: light;
+    --orange: #FF612B; --orange-soft: #FFE9E0;
+    --navy: #002677; --blue: #0C55B8; --sky: #D9F6FA; --sky-2: #EEF8FA;
+    --warm: #FBF9F4; --white: #fff; --tint: #F3F3F3; --line: #E4E2DD;
+    --ink: #1F2124; --ink-2: #4B4D4F; --ink-3: #74767A;
+    --green: #0A7D3A; --gray: #8A8D91;
+    --font: "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    --mono: Consolas, "Cascadia Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--warm); color: var(--ink); font-family: var(--font); font-size: 16px; line-height: 1.55; }
+  h1, h2, h3 { color: var(--navy); margin: 0; line-height: 1.2; }
+  h1 { font-size: 34px; font-weight: 700; }
+  h2 { font-size: 20px; font-weight: 700; }
+  h3 { font-size: 16px; font-weight: 700; }
+  p { margin: 0 0 10px; }
+  ul { margin: 6px 0 0 18px; padding: 0; } li { margin: 4px 0; }
+  code { font-family: var(--mono); font-size: 0.86em; color: var(--blue); background: var(--tint); padding: 1px 5px; border-radius: 4px; white-space: nowrap; }
+
+  .bar { background: var(--white); border-bottom: 1px solid var(--line); }
+  .bar-in { max-width: 1240px; margin: 0 auto; padding: 14px 28px; display: flex; align-items: center; gap: 14px; }
+  .brand { font-weight: 700; color: var(--navy); font-size: 19px; display: flex; align-items: center; gap: 10px; }
+  .brand i { width: 14px; height: 14px; border-radius: 50%; background: var(--orange); display: inline-block; }
+  .brand span { color: var(--ink-3); font-weight: 500; font-size: 14px; }
+  .bar .right { margin-left: auto; color: var(--ink-3); font-size: 13px; }
+  .sel { font-size: 13px; color: var(--ink-2); font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .sel select { font: inherit; font-weight: 700; color: var(--navy); border: 2px solid var(--orange); border-radius: 999px; padding: 5px 12px; background: var(--white); }
+  .c-only { display: none; } body.has-client .c-only { display: inline; } body.has-client .c-none { display: none; }
+  .c-kick { color: var(--ink-3); font-weight: 600; letter-spacing: 0; text-transform: none; }
+
+  .steps { max-width: 1240px; margin: 22px auto 0; padding: 0 28px; display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+  .step { background: var(--white); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; text-align: left; font: inherit; color: var(--ink-2); display: flex; gap: 10px; align-items: center; transition: 0.15s; }
+  .step b { color: var(--navy); font-size: 14px; display: block; line-height: 1.2; }
+  .step small { font-size: 12px; color: var(--ink-3); }
+  .step .n { flex: 0 0 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; font-weight: 700; font-size: 13px; color: var(--ink-3); }
+  .step:hover { border-color: var(--blue); }
+  .step.active { border-color: var(--orange); background: var(--white); box-shadow: 0 4px 16px rgba(0,38,119,0.08); }
+  .step.active .n { background: var(--orange); border-color: var(--orange); color: var(--white); }
+  @media (max-width: 1000px) { .steps { grid-template-columns: repeat(4, 1fr); } }
+  @media (max-width: 640px) { .steps { grid-template-columns: repeat(2, 1fr); } }
+
+  main { max-width: 1240px; margin: 0 auto; padding: 22px 28px 40px; }
+  .page { display: none; } .page.active { display: block; animation: fade 0.25s; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .head { margin-bottom: 18px; }
+  .head .k { color: var(--orange); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; font-size: 12px; margin-bottom: 6px; }
+  .head p { color: var(--ink-2); font-size: 17px; max-width: 900px; margin-top: 8px; }
+
+  .card { background: var(--white); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; }
+  .card h2 { margin-bottom: 8px; }
+  .grid { display: grid; gap: 16px; }
+  .g2 { grid-template-columns: 1fr 1fr; } .g3 { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 900px) { .g2, .g3 { grid-template-columns: 1fr; } }
+  .mt { margin-top: 16px; }
+
+  .words { background: var(--sky-2); border-left: 4px solid var(--blue); border-radius: 8px; padding: 12px 16px; }
+  .words b { color: var(--navy); }
+  .flag { background: var(--orange-soft); border-left: 4px solid var(--orange); border-radius: 8px; padding: 12px 16px; }
+  .muted { color: var(--ink-3); font-size: 14px; }
+
+  .formula { font-family: var(--mono); background: var(--navy); color: #fff; border-radius: 10px; padding: 14px 18px; font-size: 15px; white-space: pre; overflow-x: auto; line-height: 1.6; }
+  .formula .o { color: #FFB899; }
+  .formula .c { color: #9CC4FF; }
+  .term { display: grid; grid-template-columns: 240px 1fr; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line); align-items: start; }
+  .term:last-child { border-bottom: 0; }
+  .term .f { font-family: var(--mono); color: var(--navy); font-weight: 700; font-size: 14.5px; background: var(--tint); padding: 6px 10px; border-radius: 6px; }
+  .term .w b { color: var(--navy); }
+  @media (max-width: 700px) { .term { grid-template-columns: 1fr; } }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--navy); background: var(--tint); font-weight: 700; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .big { font-size: 34px; font-weight: 700; color: var(--navy); line-height: 1.1; }
+  .tile { background: var(--white); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .tile .l { color: var(--ink-3); font-size: 14px; } .tile .s { color: var(--ink-2); font-size: 14px; margin-top: 4px; }
+  .tile.o { border-top: 4px solid var(--orange); } .tile.b { border-top: 4px solid var(--blue); }
+
+  svg.d { width: 100%; height: auto; display: block; }
+  .tag { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+  .tag.o { background: var(--orange-soft); color: #B23A0A; } .tag.b { background: #E3ECFA; color: var(--navy); } .tag.g { background: #ECECEC; color: #555; }
+
+  .nav { display: flex; justify-content: space-between; margin-top: 22px; }
+  .btn { font: inherit; font-weight: 700; font-size: 14px; border: 2px solid var(--navy); color: var(--navy); background: var(--white); border-radius: 999px; padding: 8px 18px; cursor: pointer; }
+  .btn.primary { background: var(--orange); border-color: var(--orange); color: var(--white); }
+  .btn:disabled { opacity: 0.35; cursor: default; }
+
+  .scn { border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; background: var(--white); }
+  .scn .t { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .scn .t .n { width: 30px; height: 30px; border-radius: 50%; background: var(--navy); color: #fff; display: grid; place-items: center; font-weight: 700; }
+  .scn.o .t .n { background: var(--orange); }
+  .scn .ex { background: var(--tint); border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-top: 10px; }
+  .ex b { color: var(--navy); }
+
+  .ctrl { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; margin: 10px 0; font-size: 14px; }
+  .ctrl input[type=range] { width: 100%; accent-color: var(--orange); }
+  .ctrl output { font-family: var(--mono); font-weight: 700; color: var(--navy); min-width: 56px; text-align: right; }
+  .res { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+  .res div { background: var(--tint); border-radius: 8px; padding: 10px 12px; }
+  .res .k { font-size: 12.5px; color: var(--ink-3); } .res .v { font-size: 20px; font-weight: 700; color: var(--navy); }
+  .win { color: var(--green); }
+  footer { max-width: 1240px; margin: 0 auto; padding: 0 28px 28px; color: var(--ink-3); font-size: 12.5px; }
+  @media print { .page { display: block !important; page-break-after: always; } .steps, .nav { display: none; } body { background: #fff; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4B4D4F"/></marker></defs></svg>
+
+<div class="bar"><div class="bar-in">
+  <div class="brand"><i></i> Optum Rx <span>Pharmacy Network Design</span></div>
+  <div class="right">Data and model walkthrough, phase 1 retail, 2025 claims</div>
+  <label class="sel">Client data <select id="client"><option value="">none, general view</option><option value="fedex">FedEx</option></select></label>
+</div></div>
+
+<div class="steps" id="steps">
+  <button class="step" data-p="0"><span class="n">1</span><span><b>The idea</b><small>what we are building</small></span></button>
+  <button class="step" data-p="1"><span class="n">2</span><span><b>The data</b><small>three tables from claims</small></span></button>
+  <button class="step" data-p="2"><span class="n">3</span><span><b>Pharmacies</b><small>the universe, types, classes</small></span></button>
+  <button class="step" data-p="3"><span class="n">4</span><span><b>Prices</b><small>scenarios and averaging</small></span></button>
+  <button class="step" data-p="4"><span class="n">5</span><span><b>Members</b><small>demand and the client</small></span></button>
+  <button class="step" data-p="5"><span class="n">6</span><span><b>Cost function</b><small>formula and words</small></span></button>
+  <button class="step" data-p="6"><span class="n">7</span><span><b>Search space</b><small>and the model</small></span></button>
+</div>
+
+<main>
+
+<!-- ============================================ 1 THE IDEA -->
+<section class="page" id="p0">
+  <div class="head"><div class="k">1 of 7</div><h1>Design a new retail pharmacy network, one client at a time</h1>
+    <p>Not a reshuffle of members inside today's network. We start from every pharmacy in the country that any Optum Rx client used in 2025, price every one of the client's members' medicines at every pharmacy near them, and let the optimizer pick the network and the assignments that cost the least while keeping access and quality.</p></div>
+  <div class="grid g3">
+    <div class="card"><h2>What goes in</h2>
+      <ul>
+        <li><b>2025 claims</b>, the whole book of business, every client.</li>
+        <li>From them: a <b>pharmacy universe</b>, a <b>price list</b> per pharmacy and drug, and the <b>client's member demand</b>.</li>
+        <li>Business weights: value of a changed visit, value of a mile.</li>
+      </ul></div>
+    <div class="card"><h2>What the model decides</h2>
+      <ul>
+        <li>Which pharmacies are in the network (one yes/no per pharmacy).</li>
+        <li>Which pharmacy each member is assigned to (one yes/no per member and candidate).</li>
+        <li>Subject to: one pharmacy per member, within reach, capacity, a quality floor, chains in or out by state.</li>
+      </ul></div>
+    <div class="card"><h2>What comes out</h2>
+      <ul>
+        <li>The new network and the assignment list.</li>
+        <li>Drug bill under the new network vs what the client paid in 2025, like for like.</li>
+        <li>Miles added, visits moved, quality before and after.</li>
+      </ul></div>
+  </div>
+  <div class="card mt">
+    <svg class="d" viewBox="0 0 1180 190" role="img" aria-label="Three inputs meet in the model">
+      <style>.b{fill:#fff;stroke:#002677;stroke-width:2;rx:10}.b.o{stroke:#FF612B}.b.n{fill:#002677}.b.s{fill:#D9F6FA;stroke:#0C55B8}.t{font:700 15px "Segoe UI",system-ui,sans-serif;fill:#002677}.t.w{fill:#fff}.s{font:13px "Segoe UI",system-ui,sans-serif;fill:#4B4D4F}.s.w{fill:#D7DEF0}.l{stroke:#4B4D4F;stroke-width:2;fill:none;marker-end:url(#a)}</style>
+      <rect class="b" x="10" y="12" width="270" height="76"/><text class="t" x="24" y="38">Pharmacy universe</text><text class="s" x="24" y="58">every pharmacy, all clients,</text><text class="s" x="24" y="76">with location, kind and capacity</text>
+      <rect class="b" x="10" y="100" width="270" height="76"/><text class="t" x="24" y="126">Price list</text><text class="s" x="24" y="146">price per unit and fee per fill,</text><text class="s" x="24" y="164">per pharmacy and drug</text>
+      <rect class="b o" x="320" y="54" width="250" height="76"/><text class="t" x="334" y="80">Client members</text><text class="s" x="334" y="100">where they live, what they fill,</text><text class="s" x="334" y="118">how much, where they go today</text>
+      <rect class="b n" x="610" y="40" width="270" height="104"/><text class="t w" x="624" y="68">Optimizer</text><text class="s w" x="624" y="90">cost of every member at every</text><text class="s w" x="624" y="108">pharmacy near them, then the</text><text class="s w" x="624" y="126">cheapest feasible network</text>
+      <rect class="b s" x="920" y="40" width="250" height="104"/><text class="t" x="934" y="68">New client network</text><text class="s" x="934" y="90">pharmacies in, member assignments,</text><text class="s" x="934" y="108">savings vs 2025, access and</text><text class="s" x="934" y="126">quality report</text>
+      <path class="l" d="M280,50 C300,50 300,92 320,92"/><path class="l" d="M280,138 C300,138 300,92 320,92"/><path class="l" d="M570,92 L610,92"/><path class="l" d="M880,92 L920,92"/>
+    </svg>
+  </div>
+  <div class="flag mt"><b>Real and synthetic.</b> Everything above is real 2025 data and stays in house. The only synthetic element in the model is the per pharmacy network cost, a placeholder carried from the original code until contract figures arrive. D-Wave receives a synthetic copy of the data with the same tables and column names, never the real data.</div>
+</section>
+
+<!-- ============================================ 2 THE DATA -->
+<section class="page" id="p1">
+  <div class="head"><div class="k">2 of 7</div><h1>From 2025 claims to three tables</h1>
+    <p>Every paid claim of 2025 is read once. We keep only sums per pharmacy and per pharmacy and drug, so a billion claims become tables we can open. Rejected and reversed claims are dropped first.</p></div>
+  <div class="card">
+    <svg class="d" viewBox="0 0 1180 300" role="img" aria-label="Claims become three tables">
+      <style>.b{fill:#fff;stroke:#002677;stroke-width:2;rx:10}.b.o{stroke:#FF612B}.b.s{fill:#D9F6FA;stroke:#0C55B8}.t{font:700 15px "Segoe UI",system-ui,sans-serif;fill:#002677}.s{font:13px "Segoe UI",system-ui,sans-serif;fill:#4B4D4F}.m{font:12px Consolas,Menlo,monospace;fill:#0C55B8}.l{stroke:#4B4D4F;stroke-width:2;fill:none;marker-end:url(#a)}.l.o{stroke:#FF612B}.lb{font:700 11.5px "Segoe UI",system-ui,sans-serif;letter-spacing:.05em;fill:#002677}.lb.o{fill:#FF612B}</style>
+      <rect class="b" x="10" y="95" width="230" height="110"/><text class="t" x="24" y="122">2025 claims</text><text class="s" x="24" y="144">one row per fill</text><text class="s" x="24" y="162">all clients, all pharmacies</text><text class="s" x="24" y="180">paid claims only</text>
+
+      <text class="lb" x="320" y="34">ALL CLIENTS, THE WHOLE BOOK</text>
+      <rect class="b" x="320" y="44" width="225" height="56"/><text class="t" x="334" y="68">Sum per pharmacy</text><text class="s" x="334" y="88">fills, money, where, what kind</text>
+      <rect class="b" x="320" y="120" width="225" height="56"/><text class="t" x="334" y="144">Sum per pharmacy and drug</text><text class="s" x="334" y="164">money paid, quantity, fills</text>
+      <text class="lb o" x="320" y="222">ONE CLIENT ONLY</text>
+      <rect class="b o" x="320" y="232" width="225" height="56"/><text class="t" x="334" y="256">Sum per member and drug</text><text class="s" x="334" y="276">fills, quantity, today's pharmacy</text>
+      <path class="l" d="M240,150 C280,150 280,72 320,72"/><path class="l" d="M240,150 L320,148"/><path class="l o" d="M240,150 C280,150 280,260 320,260"/>
+
+      <rect class="b s" x="600" y="30" width="300" height="84"/><text class="t" x="614" y="54">Pharmacy universe</text><text class="m" x="614" y="74">book_pharmacies</text><text class="s" x="614" y="92">86,732 pharmacies, one row each</text>
+      <rect class="b s" x="600" y="124" width="300" height="84"/><text class="t" x="614" y="148">Price list</text><text class="m" x="614" y="168">book_price_table</text><text class="s" x="614" y="186">one row per pharmacy, drug, generic or brand</text>
+      <rect class="b s" x="600" y="218" width="300" height="72"/><text class="t" x="614" y="242">Client members</text><text class="m" x="614" y="262">client_members, client_demand</text><text class="s" x="614" y="280">per member, and per member and drug</text>
+      <path class="l" d="M545,72 L600,72"/><path class="l" d="M545,148 L600,166"/><path class="l o" d="M545,260 L600,254"/>
+
+      <rect class="b" x="950" y="95" width="220" height="110"/><text class="t" x="964" y="122">Model</text><text class="s" x="964" y="144">prices each member's drugs</text><text class="s" x="964" y="162">at every pharmacy in reach,</text><text class="s" x="964" y="180">then optimizes</text>
+      <path class="l" d="M900,72 C925,72 925,150 950,150"/><path class="l" d="M900,166 C925,166 925,150 950,150"/><path class="l o" d="M900,254 C925,254 925,150 950,150"/>
+    </svg>
+  </div>
+  <div class="grid g3 mt">
+    <div class="card"><h2>Pharmacy universe</h2><p class="muted">one row per pharmacy, all clients</p>
+      <ul>
+        <li>Who: name, chain, NCPDP number</li>
+        <li>Where: state, metro, coordinates</li>
+        <li>What kind: type and class (next page)</li>
+        <li>How big: fills in 2025 and capacity</li>
+        <li>Used by the client in 2025: yes or no</li>
+      </ul></div>
+    <div class="card"><h2>Price list</h2><p class="muted">one row per pharmacy, drug, generic or brand</p>
+      <ul>
+        <li>Ingredient cost per unit</li>
+        <li>Dispensing fee per fill</li>
+        <li>Where the price came from: the client's own claims, all clients, or the chain</li>
+        <li>How many claims and units are behind it</li>
+      </ul></div>
+    <div class="card"><h2>Client members</h2><p class="muted">one row per member, and one per member and drug</p>
+      <ul>
+        <li>Where the member lives (coordinates)</li>
+        <li>Each drug: fills, quantity, days supply</li>
+        <li>Which pharmacy they use today, how many visits</li>
+        <li>What the client paid for them in 2025 (the baseline)</li>
+      </ul></div>
+  </div>
+  <div class="words mt"><b>In plain words:</b> the pharmacy side is built from every client, because a new network must be able to choose pharmacies the client never used, and we need a real price for them. The member side is one client only, because that client's members are the demand we are placing.</div>
+</section>
+
+<!-- ============================================ 3 PHARMACIES -->
+<section class="page" id="p2">
+  <div class="head"><div class="k">3 of 7<span class="c-kick"></span></div><h1>The pharmacy universe</h1>
+    <p>Every pharmacy that any client used in 2025, 86,732 of them. Phase 1 works with the retail ones. Within retail, the dispensing class is the "kind" of pharmacy a member is matched within.</p></div>
+  <div class="grid g2">
+    <div class="card">
+      <h2>Type, then class</h2>
+      <svg class="d" viewBox="0 0 560 330" role="img" aria-label="Pharmacy type and class tree">
+        <style>.b{fill:#fff;stroke:#002677;stroke-width:2;rx:8}.b.f{fill:#D9F6FA;stroke:#0C55B8}.b.g{stroke:#B9BBC0;fill:#F7F7F7}.t{font:700 13.5px "Segoe UI",system-ui,sans-serif;fill:#002677}.t.g{fill:#74767A}.s{font:12px "Segoe UI",system-ui,sans-serif;fill:#4B4D4F}.l{stroke:#4B4D4F;stroke-width:1.8;fill:none}.k{font:700 11px "Segoe UI",system-ui,sans-serif;fill:#FF612B;letter-spacing:.05em}.t2{font:700 12.5px "Segoe UI",system-ui,sans-serif;fill:#002677}.s2{font:700 11.5px "Segoe UI",system-ui,sans-serif;fill:#B23A0A}</style>
+        <rect class="b" x="170" y="10" width="220" height="44"/><text class="t" x="184" y="30">Pharmacy type</text><text class="s" x="184" y="46">PHR_DISPNSR_TYPE_DESC</text>
+        <rect class="b f" x="10" y="100" width="270" height="48"/><text class="t" x="24" y="121">Community or Retail Pharmacy</text><text class="s" x="24" y="139">62,378 pharmacies, phase 1</text>
+        <rect class="b g" x="300" y="100" width="250" height="48"/><text class="t g" x="314" y="121">Mail, Specialty, LTC, Infusion ...</text><text class="s" x="314" y="139">24,354 pharmacies, later phases</text>
+        <path class="l" d="M280,54 L280,78 L145,78 L145,100"/><path class="l" d="M280,78 L425,78 L425,100"/>
+        <path class="l" d="M62,148 L62,212"/>
+        <text class="k" x="78" y="186">DISPENSING CLASS, THE KIND A MEMBER IS MATCHED WITHIN</text>
+        <text class="s" x="78" y="203">PHR_DISPNSR_CLASS_DESC</text>
+        <path class="l" d="M62,212 L494,212"/>
+        <path class="l" d="M62,212 L62,230"/><path class="l" d="M170,212 L170,230"/><path class="l" d="M278,212 L278,230"/><path class="l" d="M386,212 L386,230"/><path class="l" d="M494,212 L494,230"/>
+        <rect class="b" x="10" y="230" width="104" height="48"/><text class="t2" x="62" y="259" text-anchor="middle">Chain</text>
+        <rect class="b" x="118" y="230" width="104" height="48"/><text class="t2" x="170" y="259" text-anchor="middle">Independent</text>
+        <rect class="b" x="226" y="230" width="104" height="48"/><text class="t2" x="278" y="259" text-anchor="middle">Franchise</text>
+        <rect class="b" x="334" y="230" width="104" height="48"/><text class="t2" x="386" y="259" text-anchor="middle">Government</text>
+        <rect class="b" x="442" y="230" width="104" height="48"/><text class="t2" x="494" y="252" text-anchor="middle">Alternate</text><text class="t2" x="494" y="268" text-anchor="middle">Dispensing Site</text>
+        <rect x="10" y="292" width="320" height="26" fill="#FFE9E0" rx="6"/><text class="s2" x="170" y="309" text-anchor="middle">Chain + Independent + Franchise = normal pharmacy</text>
+        <text class="s" x="440" y="309" text-anchor="middle">also get a normal one assigned</text>
+      </svg>
+    </div>
+    <div class="card">
+      <h2>What each pharmacy row carries</h2>
+      <table>
+        <tr><td><b>Location</b></td><td>State, metro area, latitude and longitude (median of its claims). Distances to members are computed from the coordinates, never from the address text.</td></tr>
+        <tr><td><b>Chain</b></td><td>Used for the chain price fallback and for the "a chain is in or out by state" rule.</td></tr>
+        <tr><td><b>Size and capacity</b></td><td>Fills in 2025 across all clients. We assume that was 90% of what the pharmacy can take: capacity = fills ÷ 0.9. The 10% headroom can be reserved for members in areas not yet covered.</td></tr>
+        <tr><td><b>Used by <span class="c-name">the client</span></b></td><td>Flag: at least one fill by <span class="c-name">the client</span> in 2025. The others are candidates priced from other clients' claims.<span class="c-only"> FedEx: 39,864 pharmacies used, 46,868 candidates it never used.</span></td></tr>
+        <tr><td><b>Money</b></td><td>Totals paid there in 2025, all clients and <span class="c-name">the client</span>. Context and baseline, not the price (the price comes from the price list).</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="grid g2 mt">
+    <div class="words"><b>Matching rule:</b> a member is moved only within the class they use today. A member who used a Chain pharmacy gets a Chain pharmacy; a member who used two classes gets one pharmacy of each.</div>
+    <div class="words"><b>Guarantee:</b> a member whose only pharmacy is a Government or Alternate Dispensing Site also gets the closest normal pharmacy assigned, with zero fills, so nobody is left without a regular option.</div>
+  </div>
+</section>
+
+<!-- ============================================ 4 PRICES -->
+<section class="page" id="p3">
+  <div class="head"><div class="k">4 of 7<span class="c-kick"></span></div><h1>How a drug is priced at a pharmacy</h1>
+    <p>Cost means what the client pays: ingredient cost plus dispensing fee. Both come from real paid claims. Three scenarios decide whose claims we average.</p></div>
+  <div class="grid g3">
+    <div class="scn o"><div class="t"><span class="n">A</span><h2><span class="c-Name">The client</span> used this pharmacy for this drug</h2></div>
+      <p>Even one fill by <span class="c-name">the client</span> is enough. The price is <span class="c-pos">the client's</span> own average at that pharmacy.</p>
+      <div class="ex"><b>Example:</b> <span class="c-pos">the client's</span> members filled 7 claims of a generic tablet at store 123 in 2025, 420 tablets, $40.32 ingredient paid. Price = 40.32 ÷ 420 = <b>$0.096 per tablet</b>. Source: client.</div></div>
+    <div class="scn"><div class="t"><span class="n">B</span><h2><span class="c-Name">The client</span> never filled it there, other clients did</h2></div>
+      <p>The price is the average over all clients' claims at that pharmacy. Same store, same contract, other members' receipts.</p>
+      <div class="ex"><b>Example:</b> no claim by <span class="c-name">the client</span> at store 456, but 19 claims from other clients, 1,050 tablets, $98.70 paid. Price = 98.70 ÷ 1,050 = <b>$0.094 per tablet</b>. Source: all clients.</div></div>
+    <div class="scn"><div class="t"><span class="n">C</span><h2>Nobody filled it there</h2></div>
+      <p>We never assume a pharmacy cannot dispense a drug. We take the chain's average for that drug, and if the chain never filled it, the average across all pharmacies.</p>
+      <div class="ex"><b>Example:</b> store 789 belongs to Chain A; Chain A stores filled the drug 3,100 times. Price = Chain A's paid ÷ Chain A's tablets. Source: chain.</div></div>
+  </div>
+  <div class="grid g2 mt">
+    <div class="card">
+      <h2>The averaging, always volume weighted</h2>
+      <p>Price per unit = total money paid ÷ total units dispensed. Fee per fill = total fees ÷ number of fills. Never an average of averages.</p>
+      <table>
+        <tr><th>Fill</th><th class="num">tablets</th><th class="num">paid</th></tr>
+        <tr><td>1</td><td class="num">30</td><td class="num">$3.00</td></tr>
+        <tr><td>2</td><td class="num">90</td><td class="num">$8.10</td></tr>
+        <tr><td>3</td><td class="num">30</td><td class="num">$3.30</td></tr>
+        <tr><th>Volume weighted</th><th class="num">150</th><th class="num">$14.40 ÷ 150 = $0.096</th></tr>
+      </table>
+      <p class="muted" style="margin-top:8px">Averaging the three per tablet prices instead ($0.100, $0.090, $0.110) would give $0.100 and overweight the small fills.</p>
+    </div>
+    <div class="card">
+      <h2>Three rules that keep it honest</h2>
+      <ul>
+        <li><b>Generic and brand are never mixed.</b> The drug key is the GPI (molecule, form, strength) plus generic or brand. Brand Amoxil and generic amoxicillin share a GPI but get separate prices.</li>
+        <li><b>Only paid claims count.</b> Rejected and reversed rows are dropped before anything is summed.</li>
+        <li><b>The source travels with the price.</b> Every cost in the results says whether it rests on <span class="c-pos">the client's</span> own claims, other clients' claims, or a chain fallback.</li>
+      </ul>
+      <div class="words" style="margin-top:10px"><b>Why other clients' prices are valid:</b> pricing is passthrough. The client pays what the pharmacy is paid, and the pharmacy's rate comes from its chain contract, not from the client. Where <span class="c-name">the client</span> and other clients both have claims at a store, the two averages can be compared to prove it.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================ 5 MEMBERS -->
+<section class="page" id="p4">
+  <div class="head"><div class="k">5 of 7<span class="c-kick"></span></div><h1>Members, and how they connect to pharmacies</h1>
+    <p>One client is one carrier id<span class="c-only"> (<span class="c-name"></span>, CARRIER_ID = <span class="c-carrier"></span>)</span>. Its accounts and employer groups share one network, so the model runs for the whole client at once and is solved metro by metro.</p></div>
+  <div class="card">
+    <svg class="d" viewBox="0 0 1180 252" role="img" aria-label="From a member to a cost per pharmacy">
+      <style>.b{fill:#fff;stroke:#002677;stroke-width:2;rx:10}.b.o{stroke:#FF612B}.b.s{fill:#D9F6FA;stroke:#0C55B8}.t{font:700 15px "Segoe UI",system-ui,sans-serif;fill:#002677}.s{font:13px "Segoe UI",system-ui,sans-serif;fill:#4B4D4F}.l{stroke:#4B4D4F;stroke-width:2;fill:none;marker-end:url(#a)}.st{font:700 11.5px "Segoe UI",system-ui,sans-serif;fill:#FF612B;letter-spacing:.05em}</style>
+      <text class="st" x="10" y="22">STEP 1</text><rect class="b o" x="10" y="30" width="260" height="110"/><text class="t" x="24" y="56">One member</text><text class="s" x="24" y="78">lives at a point on the map</text><text class="s" x="24" y="96">fills 5 drugs a year: generic or</text><text class="s" x="24" y="114">brand, quantity, number of fills</text><text class="s" x="24" y="132">uses pharmacy P1 today</text>
+      <text class="st" x="310" y="22">STEP 2</text><rect class="b" x="310" y="30" width="260" height="110"/><text class="t" x="324" y="56">Candidate pharmacies</text><text class="s" x="324" y="78">retail pharmacies within the</text><text class="s" x="324" y="96">access radius, same class,</text><text class="s" x="324" y="114">used by <tspan class="c-name">the client</tspan> or not</text><text class="s" x="324" y="132">typically 20 to 40 of them</text>
+      <text class="st" x="610" y="22">STEP 3</text><rect class="b" x="610" y="30" width="260" height="110"/><text class="t" x="624" y="56">Price the 5 drugs at each</text><text class="s" x="624" y="78">from the price list, scenario</text><text class="s" x="624" y="96">A, B or C per drug</text><text class="s" x="624" y="114">cost = price × quantity</text><text class="s" x="624" y="132">+ fee × fills, summed</text>
+      <text class="st" x="910" y="22">STEP 4</text><rect class="b s" x="910" y="30" width="260" height="110"/><text class="t" x="924" y="56">One number per pharmacy</text><text class="s" x="924" y="78">the member's yearly drug bill</text><text class="s" x="924" y="96">at P1, P2, P3 ... plus the miles</text><text class="s" x="924" y="114">and whether it is a move</text><text class="s" x="924" y="132">this feeds the optimizer</text>
+      <path class="l" d="M270,85 L310,85"/><path class="l" d="M570,85 L610,85"/><path class="l" d="M870,85 L910,85"/>
+      <rect x="10" y="170" width="1160" height="72" rx="10" fill="#EEF8FA"/>
+      <text class="t" x="24" y="196">Repeated for every member of <tspan class="c-name">the client</tspan>, metro by metro.</text>
+      <text class="s" x="24" y="216">A large client has around 100 thousand members, 20 to 40 candidates each: a few million member x pharmacy costs.</text><text class="s" x="24" y="232">The price list itself (48.9 million rows) is never loaded; only the slice for these pharmacies and these drugs is read.</text>
+    </svg>
+  </div>
+  <div class="grid g3 mt">
+    <div class="card"><h2>Client level</h2><ul><li>One client = one carrier id<span class="c-only"> (<span class="c-carrier"></span>)</span>.</li><li>Accounts and employer groups under it are labels for reporting; they share pharmacies and one network.</li><li>Pharmacy prices are set per chain contract, not per client, which is why the universe is built from all clients.</li></ul></div>
+    <div class="card"><h2>Member level</h2><ul><li>Location: median of the member's coordinates on their claims.</li><li>Demand: per drug (GPI + generic/brand), fills and quantity in 2025, within the dispensing class used.</li><li>Today: the pharmacy with the most fills, and the number of visits (distinct fill dates).</li></ul></div>
+    <div class="card"><h2>Baseline</h2><ul><li>What <span class="c-name">the client</span> actually paid at retail for each member in 2025: ingredient cost plus fees.</li><li>The new network is compared against it with the same members, same drugs, same quantities.</li><li>Only the pharmacy changes, and every pharmacy's price is what it was really paid.</li></ul></div>
+  </div>
+</section>
+
+<!-- ============================================ 6 COST FUNCTION -->
+<section class="page" id="p5">
+  <div class="head"><div class="k">6 of 7<span class="c-kick"></span></div><h1>The cost function, in formula and in words</h1>
+    <p>The optimizer minimizes one total. Four terms: the drug bill, the cost of the network itself, disruption to members, and distance. The first is data; the last three are business judgement made explicit.</p></div>
+  <div class="grid g2">
+    <div class="card">
+      <h2>Formula</h2>
+      <div class="formula"><span class="c">Cost of member m at pharmacy p</span>
+C[m,p] = Σ over the member's drugs d of
+         price[p,d] × quantity[m,d] + fee[p,d] × fills[m,d]
+
+<span class="c">Total to minimize</span>
+Total = Σ C[m,p] · a[m,p]          <span class="o">drug bill</span>
+      + Σ N[p] · x[p]              <span class="o">network cost</span>
+      + A · (visits moved)         <span class="o">disruption</span>
+      + λ · (extra miles)          <span class="o">access</span>
+
+<span class="c">Decisions</span>
+x[p] = 1 if pharmacy p is in the network
+a[m,p] = 1 if member m is assigned to p</div>
+      <table style="margin-top:12px">
+        <tr><td style="width:34%"><code>m, p, d</code></td><td>a member, a pharmacy, a drug (GPI plus generic or brand)</td></tr>
+        <tr><td><code>price[p,d], fee[p,d]</code></td><td>from the price list, scenario A, B or C</td></tr>
+        <tr><td><code>quantity[m,d], fills[m,d]</code></td><td>the member's 2025 demand for that drug</td></tr>
+        <tr><td><code>N[p]</code></td><td>yearly cost of keeping pharmacy p in the network</td></tr>
+        <tr><td><code>A, λ</code></td><td>business weights: value of a changed visit, value of a mile</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Words</h2>
+      <div class="term"><div class="f">Drug bill</div><div class="w">What <span class="c-name">the client</span> would pay in a year if every member filled their 2025 medicines at the pharmacy they are assigned to, at that pharmacy's real prices. The big number.</div></div>
+      <div class="term"><div class="f">Network cost  <span class="tag g">placeholder</span></div><div class="w">A fixed yearly cost for every pharmacy kept in the network (administration, credentialing). Synthetic values from the original code until contract figures arrive; can be set to zero.</div></div>
+      <div class="term"><div class="f">Disruption</div><div class="w">A price A we put on every visit a member would have to make at a different pharmacy than today. Keeps the model from moving people for pennies.</div></div>
+      <div class="term"><div class="f">Access</div><div class="w">A price λ per extra mile a member travels compared to today, times their visits. Keeps the network close to where people live.</div></div>
+    </div>
+  </div>
+  <div class="grid g2 mt">
+    <div class="card">
+      <h2>The rules the optimizer must respect</h2>
+      <table>
+        <tr><td><b>One pharmacy each</b></td><td>Every member gets exactly one pharmacy in every class they use. Only pharmacies that are in the network can be assigned.</td></tr>
+        <tr><td><b>Within reach</b></td><td>Only pharmacies inside the access radius of the member are candidates.</td></tr>
+        <tr><td><b>Capacity</b></td><td>Fills assigned to a pharmacy cannot exceed its capacity (2025 fills ÷ 0.9).</td></tr>
+        <tr><td><b>Quality floor</b></td><td>The fill weighted quality of the assigned pharmacies cannot drop below today's level. Quality is measured by adherence on maintenance drugs, from real fills.</td></tr>
+        <tr><td><b>Chains by state</b></td><td>A chain's stores in a state are in or out together, the way contracts are signed.</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Worked example: one member, two pharmacies</h2>
+      <table>
+        <tr><th>Drug</th><th class="num">fills</th><th class="num">qty</th><th class="num">at P1 (today)</th><th class="num">at P2 (new)</th></tr>
+        <tr><td>Generic maintenance tablet</td><td class="num">12</td><td class="num">1,080</td><td class="num">$72.00</td><td class="num">$55.20</td></tr>
+        <tr><td>Brand inhaler</td><td class="num">12</td><td class="num">360</td><td class="num">$3,546.00</td><td class="num">$3,288.00</td></tr>
+        <tr><td>Generic antibiotic</td><td class="num">4</td><td class="num">120</td><td class="num">$54.00</td><td class="num">$58.00</td></tr>
+        <tr><th>Drug bill for the year</th><th></th><th></th><th class="num">$3,672</th><th class="num">$3,401</th></tr>
+      </table>
+      <p class="muted" style="margin-top:6px">P1 prices are <span class="c-pos">the client's</span> own (scenario A). P2 was never used by <span class="c-name">the client</span>; its prices are all clients' (B) and one chain fallback (C). P2 is 1.1 miles further; the member made 16 visits.</p>
+      <div class="ctrl"><label>A, value of one changed visit ($)<input id="dA" type="range" min="0" max="20" step="0.5" value="4"></label><output id="oA">4.0</output></div>
+      <div class="ctrl"><label>λ, value of one extra mile ($)<input id="dL" type="range" min="0" max="5" step="0.1" value="1.0"></label><output id="oL">1.0</output></div>
+      <div class="res"><div><div class="k">drug bill saving at P2</div><div class="v">$271</div></div><div><div class="k">disruption + access</div><div class="v" id="rPen"></div></div><div><div class="k">net for moving</div><div class="v" id="rNet"></div></div></div>
+      <p id="verdict" style="margin-top:8px"></p>
+    </div>
+  </div>
+  <div class="words mt"><b>Savings line:</b> Today's cost is what <span class="c-name">the client</span> paid in 2025. The optimized cost is the same members, same drugs, same quantities at the new pharmacies' real prices. Savings is the difference, reported together with miles added, visits moved, and the share of the new cost that rests on <span class="c-pos">the client's</span> own prices versus other clients' prices.</div>
+</section>
+
+<!-- ============================================ 7 SEARCH SPACE -->
+<section class="page" id="p6">
+  <div class="head"><div class="k">7 of 7<span class="c-kick"></span></div><h1>What the search space looks like</h1>
+    <p>Two layers of yes/no decisions, and the answer to one layer changes the best answer to the other. That coupling is what makes the problem hard, and what quantum hardware is being tested on.</p></div>
+  <div class="grid g3">
+    <div class="tile b"><div class="l">Network decisions, retail</div><div class="big">62,378</div><div class="s">one yes/no per pharmacy: 2 to the power 62,378 possible networks</div></div>
+    <div class="tile o"><div class="l">Assignment decisions, one client</div><div class="big"><span class="c-none">members × 7</span><span class="c-only">≈ 700K</span></div><div class="s"><span class="c-only">FedEx: about 100K members × 7 realistic candidates each. </span>Every 10K members ≈ 62K decisions.</div></div>
+    <div class="tile b"><div class="l">Same model, whole book</div><div class="big">≈ 640M</div><div class="s">92.6M members × 7 candidates; 89,740 network decisions</div></div>
+  </div>
+  <div class="grid g2 mt">
+    <div class="card">
+      <h2>Why it is not a lookup</h2>
+      <ul>
+        <li><b>Cheapest for one is not cheapest for all.</b> Send every member to their cheapest pharmacy and you open thousands of pharmacies, each with a network cost and a capacity. Close pharmacies and members must move, which costs disruption and miles.</li>
+        <li><b>Decisions interact.</b> Opening one store changes the best choice for every member nearby, and through capacity, for members further away. Chains in or out by state couple whole regions.</li>
+        <li><b>Many near equal answers.</b> On a toy version with 4,096 possible networks, 338 looked best to any single change, yet only 2 were truly best under swaps. Real sizes have vastly more such traps.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>The landscape</h2>
+      <svg class="d" viewBox="0 0 560 240" role="img" aria-label="Cost landscape with many local minima">
+        <defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#0C55B8" stop-opacity="0.16"/><stop offset="1" stop-color="#0C55B8" stop-opacity="0"/></linearGradient></defs>
+        <text x="12" y="20" font-size="12.5" fill="#4B4D4F" font-family="Segoe UI,system-ui,sans-serif">Total cost, lower is better. Each point is a complete network with its best assignments.</text>
+        <path d="M10,110 C30,110 30,70 50,70 C70,70 70,140 90,140 C110,140 110,90 130,90 C150,90 150,150 170,150 C190,150 190,100 210,100 C230,100 230,160 250,160 C270,160 270,110 290,110 C310,110 310,170 330,170 C350,170 350,80 370,80 C395,80 395,195 420,195 C445,195 445,120 470,120 C490,120 490,165 510,165 C530,165 530,130 550,130 L550,225 L10,225 Z" fill="url(#g)"/>
+        <path d="M10,110 C30,110 30,70 50,70 C70,70 70,140 90,140 C110,140 110,90 130,90 C150,90 150,150 170,150 C190,150 190,100 210,100 C230,100 230,160 250,160 C270,160 270,110 290,110 C310,110 310,170 330,170 C350,170 350,80 370,80 C395,80 395,195 420,195 C445,195 445,120 470,120 C490,120 490,165 510,165 C530,165 530,130 550,130" fill="none" stroke="#0C55B8" stroke-width="2.5"/>
+        <circle cx="90" cy="140" r="6" fill="#fff" stroke="#8A8D91" stroke-width="2.5"/><circle cx="170" cy="150" r="6" fill="#fff" stroke="#8A8D91" stroke-width="2.5"/><circle cx="250" cy="160" r="6" fill="#fff" stroke="#8A8D91" stroke-width="2.5"/><circle cx="330" cy="170" r="6" fill="#fff" stroke="#8A8D91" stroke-width="2.5"/><circle cx="510" cy="165" r="6" fill="#fff" stroke="#8A8D91" stroke-width="2.5"/>
+        <circle cx="420" cy="195" r="7" fill="#FF612B" stroke="#fff" stroke-width="2.5"/>
+        <text x="170" y="172" text-anchor="middle" font-size="11.5" fill="#4B4D4F" font-family="Segoe UI,system-ui,sans-serif">looks best locally</text>
+        <text x="330" y="192" text-anchor="middle" font-size="11.5" fill="#4B4D4F" font-family="Segoe UI,system-ui,sans-serif">looks best locally</text>
+        <text x="420" y="217" text-anchor="middle" font-size="12" font-weight="700" fill="#B23A0A" font-family="Segoe UI,system-ui,sans-serif">best network</text>
+        <line x1="10" y1="225" x2="550" y2="225" stroke="#C3C2B7"/>
+        <text x="550" y="237" text-anchor="end" font-size="11" fill="#74767A" font-family="Segoe UI,system-ui,sans-serif">networks, arranged by similarity</text>
+      </svg>
+      <p class="muted">A solver that only accepts improving single changes stops in the first valley it finds. The real question is how far that valley is from the best one, and how fast each method gets out.</p>
+    </div>
+  </div>
+  <div class="grid g3 mt">
+    <div class="card"><h2>Classical, real data</h2><p>Pyomo and HiGHS solve the 0/1 program metro by metro in house, with a proof of how far the answer can be from optimal (the gap). This is the production path.</p></div>
+    <div class="card"><h2>D-Wave, synthetic data</h2><p>The same model is sent to the hybrid constrained quadratic solver on a synthetic copy of the data (same tables, same columns, invented members and pharmacies). We compare answer quality and time against the classical run at matching sizes.</p></div>
+    <div class="card"><h2>What we learn</h2><p>Whether the quantum hybrid finds better valleys, or finds them faster, as the problem grows from one metro to <span class="c-none">the whole client</span><span class="c-only">all of <span class="c-name"></span></span> to the whole book, where the classical path runs out of room.</p></div>
+  </div>
+</section>
+
+<div class="nav"><button class="btn" id="prev">Previous</button><button class="btn primary" id="next">Next</button></div>
+</main>
+<footer>Pharmacy Network Design, phase 1 retail. Data: 2025 claims, whole book for pharmacies and prices, the selected client for members. Real data stays in house; D-Wave receives synthetic data only.</footer>
+
+<script>
+(function () {
+  const pages = [...document.querySelectorAll('.page')], steps = [...document.querySelectorAll('.step')];
+  let cur = 0;
+  function go(i) {
+    cur = Math.max(0, Math.min(pages.length - 1, i));
+    pages.forEach((p, k) => p.classList.toggle('active', k === cur));
+    steps.forEach((s, k) => s.classList.toggle('active', k === cur));
+    document.getElementById('prev').disabled = cur === 0;
+    document.getElementById('next').disabled = cur === pages.length - 1;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    try { location.hash = 'p' + cur; } catch (e) {}
+  }
+  steps.forEach(s => s.addEventListener('click', () => go(+s.dataset.p)));
+  document.getElementById('prev').onclick = () => go(cur - 1);
+  document.getElementById('next').onclick = () => go(cur + 1);
+  document.addEventListener('keydown', e => { if (e.key === 'ArrowRight') go(cur + 1); if (e.key === 'ArrowLeft') go(cur - 1); });
+  function fromHash() { const h = parseInt((location.hash || '').replace('#p', '')); go(isNaN(h) ? 0 : h); }
+  window.addEventListener('hashchange', fromHash); fromHash();
+
+  const dA = document.getElementById('dA'), dL = document.getElementById('dL');
+  const fmt0 = n => '$' + Math.round(n).toLocaleString('en-US');
+  function calc() {
+    const A = +dA.value, L = +dL.value, visits = 16, extra = 1.1 * 2 * visits, save = 3672 - 3401.2;
+    document.getElementById('oA').textContent = A.toFixed(1); document.getElementById('oL').textContent = L.toFixed(1);
+    const pen = A * visits + L * extra, net = save - pen;
+    document.getElementById('rPen').textContent = fmt0(pen);
+    document.getElementById('rNet').innerHTML = net >= 0 ? '<span class="win">+' + fmt0(net) + '</span>' : '<span style="color:#B35A00">' + fmt0(net) + '</span>';
+    document.getElementById('verdict').textContent = net >= 0
+      ? 'P2 wins: the $271 drug bill saving outweighs 16 changed visits (' + fmt0(A * visits) + ') and ' + Math.round(extra) + ' extra miles (' + fmt0(L * extra) + ').'
+      : 'P1 stays: at these weights, moving costs more in disruption and distance than it saves.';
+  }
+  dA.addEventListener('input', calc); dL.addEventListener('input', calc); calc();
+
+  // client selector: the narrative is general; pick a client to fill in its name and numbers
+  const CLIENTS = {
+    '': { name: 'the client', Name: 'The client', pos: "the client's", carrier: '', kick: ' \u00b7 general view, pick a client in the top bar for client data' },
+    fedex: { name: 'FedEx', Name: 'FedEx', pos: "FedEx's", carrier: 'FEDEX', kick: ' \u00b7 client data: FedEx' },
+  };
+  const sel = document.getElementById('client');
+  function applyClient() {
+    const c = CLIENTS[sel.value] || CLIENTS[''];
+    document.body.classList.toggle('has-client', !!sel.value);
+    document.querySelectorAll('.c-name').forEach(e => e.textContent = c.name);
+    document.querySelectorAll('.c-Name').forEach(e => e.textContent = c.Name);
+    document.querySelectorAll('.c-pos').forEach(e => e.textContent = c.pos);
+    document.querySelectorAll('.c-carrier').forEach(e => e.textContent = c.carrier);
+    document.querySelectorAll('.c-kick').forEach(e => e.textContent = c.kick);
+    try { localStorage.setItem('pnd_client', sel.value); } catch (e) {}
+  }
+  try { sel.value = localStorage.getItem('pnd_client') || ''; } catch (e) {}
+  sel.addEventListener('change', applyClient); applyClient();
+})();
+</script>
+</body>
+</html>
