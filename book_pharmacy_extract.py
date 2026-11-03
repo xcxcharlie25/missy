@@ -3,10 +3,17 @@ book_pharmacy_extract.py
 
 Pharmacy level data and pharmacy x drug price data from the whole book of business.
 
-Reads the 2025 parquet files ONE AT A TIME with DuckDB, keeps only summed results
-per pharmacy and per pharmacy x drug, and combines them at the end. The raw claims
-never sit in memory. Finished files are recorded, so if the run stops you just run
-it again and it continues with the files that are left.
+Rules (agreed Nov 2026):
+    rows      approved claims of every carrier: amount due >= 0 (reversals and negatives out), client price type not
+              blank and not ZERO, fill date in YEAR. The files are cut by submission date, so older fills are dropped.
+    repeats   rows identical on member, pharmacy, drug (GPI + G/B), fill date, quantity, days supply, ingredient cost
+              and fee are one fill. One is kept, within each file (repeats almost never cross files).
+    money     client ingredient cost + client dispensing fee as recorded on the row. Fills with amount due = 0 carry
+              the contract price too, so they count in the volume and in the prices.
+
+Reads the parquet files ONE AT A TIME with DuckDB, keeps only summed results per pharmacy and per
+pharmacy x drug, and combines them at the end. The raw claims never sit in memory. Finished files
+are recorded, so if the run stops you just run it again and it continues with the files that are left.
 
 Outputs (in OUT folder):
     per_file/<file>_pharmacies.parquet / .xlsx   that file's pharmacies, all rows
@@ -32,7 +39,8 @@ FOLDER    = Path.home() / "Downloads"        # where the parquet files are
 PATTERN   = "*2025_*.parquet"                 # jan2025_first.parquet, feb2025_third.parquet ...
 OUT       = FOLDER / "book_tables"            # outputs go here
 CLIENT    = "FEDEX"                           # CARRIER_ID of the client
-MEMORY    = "12GB"                            # a few GB below the RAM of the machine
+YEAR      = 2025                              # fills outside this year are dropped
+MEMORY    = "16GB"                            # a few GB below the RAM of the machine (24 GB Mac: 16GB; 8 GB laptop: 6GB)
 THREADS   = 6
 PHR_LAT   = None                              # None = detect automatically, or the column name
 PHR_LON   = None
@@ -44,7 +52,7 @@ C = dict(  # column names in the parquet files; change here if yours differ
     ncpdp="PHR_NCPDP_ID", npi="PHR_NPI_NO", name="PHR_NM", affl="PHR_AFFL_NM", chain="a_nf_pharmacy",
     ptype="PHR_DISPNSR_TYPE_DESC", pclass="PHR_DISPNSR_CLASS_DESC",
     state="PHR_ST_CD", msa="LOC_MSA_CD", zip="PHR_ZIP_CD", city="PHR_CITY_NM", addr="PHR_ADDR1_TXT",
-    carrier="CARRIER_ID", gpi="a_nt_gpi", gb="a_irpg_drugtype", qty="a_nf_drg_qty",
+    carrier="CARRIER_ID", mbr="MBR_ID", gpi="a_nt_gpi", gb="a_irpg_drugtype", qty="a_nf_drg_qty", days="DAYS_SUPPLY",
     ingred="m_nf_clt_ingred_cost_paid", fee="m_nf_clt_dispensing_fee",
     due="m_nf_app_due_amt", prctyp="a_nf_clt_prc_typ", filled="FILLED_DT",
 )
@@ -91,54 +99,69 @@ if PHR_LAT is None or PHR_LON is None:
     PHR_LAT = PHR_LAT or (lat[0] if lat else None)
     PHR_LON = PHR_LON or (lon[0] if lon else None)
 print("pharmacy coordinates:", PHR_LAT, PHR_LON)
-lat_expr = f"median({PHR_LAT})" if PHR_LAT else "NULL::DOUBLE"
-lon_expr = f"median({PHR_LON})" if PHR_LON else "NULL::DOUBLE"
+# coordinates are text in the files and the same on every claim of a pharmacy: cast to a number and take the most common
+# value. (median over text kept every row of the file in memory and ran out of memory on a 10 GB file)
+lat_expr = f"mode(TRY_CAST({PHR_LAT} AS DOUBLE))" if PHR_LAT else "NULL::DOUBLE"
+lon_expr = f"mode(TRY_CAST({PHR_LON} AS DOUBLE))" if PHR_LON else "NULL::DOUBLE"
 
-# paid claims only, with the client flag
-PAID = f"""
+# approved claims of the year, every carrier
+APPROVED = f"""
     FROM read_parquet('{{path}}')
-    WHERE {C['due']} > 0
+    WHERE {C['due']} >= 0
       AND coalesce(trim(CAST({C['prctyp']} AS VARCHAR)), '') NOT IN ('', 'ZERO')
+      AND TRY_CAST({C['filled']} AS DATE) BETWEEN DATE '{YEAR}-01-01' AND DATE '{YEAR}-12-31'
 """
-IS_CLIENT = f"CASE WHEN CAST({C['carrier']} AS VARCHAR) = '{CLIENT}' THEN 1 ELSE 0 END"
-
-PHARM_SQL = f"""
-    SELECT '{{file}}' AS file,
-           {C['ncpdp']}  AS ncpdp,
+# one row per fill: repeats (the same claim submitted several times) collapse to one. Narrow columns only, so the
+# distinct fits in memory; the pharmacy's attributes are taken from the raw rows separately (repeats do not change a mode)
+FILLS_SQL = f"""
+    SELECT DISTINCT CAST({C['mbr']} AS VARCHAR) AS mbr, CAST({C['ncpdp']} AS VARCHAR) AS ncpdp,
+           CAST({C['gpi']} AS VARCHAR) AS gpi, {C['gb']} AS gb, TRY_CAST({C['filled']} AS DATE) AS filled,
+           {C['qty']} AS qty, {C['days']} AS days, {C['ingred']} AS ingred, {C['fee']} AS fee,
+           CASE WHEN CAST({C['carrier']} AS VARCHAR) = '{CLIENT}' THEN 1 ELSE 0 END AS is_client
+    {APPROVED}
+"""
+ATTR_SQL = f"""
+    SELECT CAST({C['ncpdp']} AS VARCHAR) AS ncpdp,
            mode({C['npi']})    AS npi,   mode({C['name']})  AS name,  mode({C['affl']})  AS affl,
            mode({C['chain']})  AS chain, mode({C['ptype']}) AS ptype, mode({C['pclass']}) AS pclass,
            mode({C['state']})  AS state, mode({C['msa']})   AS msa,   mode({C['zip']})   AS zip,
            mode({C['city']})   AS city,  mode({C['addr']})  AS addr,
-           {lat_expr} AS lat, {lon_expr} AS lon,
-           count(*)                                        AS fills_all,
-           sum({IS_CLIENT})                                AS fills_client,
-           sum({C['ingred']})                              AS ingred_all,
-           sum({C['fee']})                                 AS fee_all,
-           sum(CASE WHEN {IS_CLIENT} = 1 THEN {C['ingred']} END) AS ingred_client,
-           sum(CASE WHEN {IS_CLIENT} = 1 THEN {C['fee']} END)    AS fee_client,
-           min({C['filled']}) AS first_fill, max({C['filled']}) AS last_fill
-    {PAID}
-    GROUP BY {C['ncpdp']}
+           {lat_expr} AS lat, {lon_expr} AS lon
+    {APPROVED}
+    GROUP BY 1
 """
-
+PHARM_SQL = f"""
+    SELECT '{{file}}' AS file, a.*,
+           f.fills_all, f.fills_client, f.ingred_all, f.fee_all, f.ingred_client, f.fee_client, f.first_fill, f.last_fill
+    FROM cur_attr a JOIN (
+        SELECT ncpdp, count(*) AS fills_all, sum(is_client) AS fills_client,
+               sum(ingred) AS ingred_all, sum(fee) AS fee_all,
+               sum(CASE WHEN is_client = 1 THEN ingred END) AS ingred_client,
+               sum(CASE WHEN is_client = 1 THEN fee END)    AS fee_client,
+               min(filled) AS first_fill, max(filled) AS last_fill
+        FROM cur_fills GROUP BY 1) f USING (ncpdp)
+"""
 PRICE_SQL = f"""
-    SELECT '{{file}}' AS file,
-           {C['ncpdp']} AS ncpdp, {C['gpi']} AS gpi, {C['gb']} AS gb,
-           sum(CASE WHEN {IS_CLIENT} = 1 THEN {C['ingred']} END) AS ingred_client,
-           sum(CASE WHEN {IS_CLIENT} = 1 THEN {C['fee']} END)    AS fee_client,
-           sum(CASE WHEN {IS_CLIENT} = 1 THEN {C['qty']} END)    AS qty_client,
-           sum({IS_CLIENT})                                      AS claims_client,
-           sum({C['ingred']}) AS ingred_all,
-           sum({C['fee']})    AS fee_all,
-           sum({C['qty']})    AS qty_all,
-           count(*)           AS claims_all
-    {PAID}
-    GROUP BY {C['ncpdp']}, {C['gpi']}, {C['gb']}
+    SELECT '{{file}}' AS file, ncpdp, gpi, gb,
+           sum(CASE WHEN is_client = 1 THEN ingred END) AS ingred_client,
+           sum(CASE WHEN is_client = 1 THEN fee END)    AS fee_client,
+           sum(CASE WHEN is_client = 1 THEN qty END)    AS qty_client,
+           sum(is_client)                               AS claims_client,
+           sum(ingred) AS ingred_all, sum(fee) AS fee_all, sum(qty) AS qty_all, count(*) AS claims_all
+    FROM cur_fills GROUP BY 1, 2, 3, 4
 """
 
 
 def table_exists(name):
     return q(f"SELECT count(*) FROM information_schema.tables WHERE table_name='{name}'").fetchone()[0] > 0
+
+
+def xlsx(df, path):
+    """the xlsx copies are only for looking at the data; if Excel writing fails the run goes on (the parquet is what the model reads)"""
+    try:
+        df.to_excel(path, sheet_name="data", index=False)
+    except Exception as e:
+        print(f"   {path.name}: not written ({type(e).__name__}: {e}), parquet is fine")
 
 
 def add(table, sql):
@@ -148,8 +171,15 @@ def add(table, sql):
         q(f"CREATE TABLE {table} AS {sql}")
 
 
+if table_exists("pharm_stage") and q("SELECT typeof(lat) FROM pharm_stage LIMIT 1").fetchone() and \
+        q("SELECT typeof(lat) FROM pharm_stage LIMIT 1").fetchone()[0] == "VARCHAR":
+    sys.exit(f"{OUT / 'book_stage.duckdb'} was made by an older version of this script (no dedupe, text coordinates).\n"
+             f"Delete the book_tables folder and run again.")
 q("CREATE TABLE IF NOT EXISTS done_files (file VARCHAR)")
 done = {r[0] for r in q("SELECT file FROM done_files").fetchall()}
+for t in ("pharm_stage", "price_stage"):          # drop leftovers of a file that was cut off mid way
+    if table_exists(t):
+        q(f"DELETE FROM {t} WHERE file NOT IN (SELECT file FROM done_files)")
 
 # ---- one file at a time ------------------------------------------------------
 t_all = time.time()
@@ -159,33 +189,40 @@ for i, f in enumerate(files, 1):
         continue
     t = time.time()
     fill = dict(path=f.as_posix(), file=f.name)
-    add("pharm_stage", PHARM_SQL.format(**fill))
-    add("price_stage", PRICE_SQL.format(**fill))
+    # this file's rows: one row per fill (repeats removed), pharmacy attributes, then the two small sum tables.
+    # The stage tables are only appended to
+    q(f"CREATE OR REPLACE TEMP TABLE cur_fills AS {FILLS_SQL.format(**fill)}")
+    q(f"CREATE OR REPLACE TEMP TABLE cur_attr AS {ATTR_SQL.format(**fill)}")
+    q(f"CREATE OR REPLACE TEMP TABLE cur_pharm AS {PHARM_SQL.format(**fill)}")
+    q(f"CREATE OR REPLACE TEMP TABLE cur_price AS {PRICE_SQL.format(**fill)}")
+    q("DROP TABLE cur_fills"); q("DROP TABLE cur_attr")
+    con.begin()                                    # all three or nothing
+    add("pharm_stage", "SELECT * FROM cur_pharm")
+    add("price_stage", "SELECT * FROM cur_price")
     q(f"INSERT INTO done_files VALUES ('{f.name}')")
     con.commit()
     if PER_FILE:                                   # this file's own tables, small enough to open
-        where = f"WHERE file = '{f.name}'"
-        ph_sql = f"""SELECT ncpdp AS PHR_NCPDP_ID, npi AS PHR_NPI_NO, name AS PHR_NM, affl AS PHR_AFFL_NM,
-                            chain AS a_nf_pharmacy, ptype AS PHR_DISPNSR_TYPE_DESC, pclass AS PHR_DISPNSR_CLASS_DESC,
-                            state AS PHR_ST_CD, msa AS LOC_MSA_CD, zip AS PHR_ZIP_CD, city AS PHR_CITY_NM,
-                            addr AS PHR_ADDR1_TXT, lat AS PHR_LAT, lon AS PHR_LON,
-                            fills_all::BIGINT AS fills_all, fills_client::BIGINT AS fills_client,
-                            ingred_all, fee_all, ingred_client, fee_client, first_fill, last_fill
-                     FROM pharm_stage {where} ORDER BY fills_client DESC, fills_all DESC"""
-        pr_sql = f"""SELECT ncpdp AS PHR_NCPDP_ID, gpi AS a_nt_gpi, gb AS a_irpg_drugtype,
-                            ingred_client, fee_client, qty_client, claims_client::BIGINT AS claims_client,
-                            ingred_all, fee_all, qty_all, claims_all::BIGINT AS claims_all,
-                            ingred_client / nullif(qty_client, 0) AS unit_ingred_client,
-                            ingred_all    / nullif(qty_all, 0)    AS unit_ingred_all
-                     FROM price_stage {where} ORDER BY claims_client DESC, claims_all DESC"""
+        ph_sql = """SELECT ncpdp AS PHR_NCPDP_ID, npi AS PHR_NPI_NO, name AS PHR_NM, affl AS PHR_AFFL_NM,
+                           chain AS a_nf_pharmacy, ptype AS PHR_DISPNSR_TYPE_DESC, pclass AS PHR_DISPNSR_CLASS_DESC,
+                           state AS PHR_ST_CD, msa AS LOC_MSA_CD, zip AS PHR_ZIP_CD, city AS PHR_CITY_NM,
+                           addr AS PHR_ADDR1_TXT, lat AS PHR_LAT, lon AS PHR_LON,
+                           fills_all::BIGINT AS fills_all, fills_client::BIGINT AS fills_client,
+                           ingred_all, fee_all, ingred_client, fee_client, first_fill, last_fill
+                    FROM cur_pharm ORDER BY fills_client DESC, fills_all DESC"""
+        pr_sql = """SELECT ncpdp AS PHR_NCPDP_ID, gpi AS a_nt_gpi, gb AS a_irpg_drugtype,
+                           ingred_client, fee_client, qty_client, claims_client::BIGINT AS claims_client,
+                           ingred_all, fee_all, qty_all, claims_all::BIGINT AS claims_all,
+                           ingred_client / nullif(qty_client, 0) AS unit_ingred_client,
+                           ingred_all    / nullif(qty_all, 0)    AS unit_ingred_all
+                    FROM cur_price ORDER BY claims_client DESC, claims_all DESC"""
         q(f"COPY ({ph_sql}) TO '{(PER / f'{f.stem}_pharmacies.parquet').as_posix()}' (FORMAT PARQUET)")
         q(f"COPY ({pr_sql}) TO '{(PER / f'{f.stem}_price.parquet').as_posix()}' (FORMAT PARQUET)")
-        q(ph_sql).df().to_excel(PER / f"{f.stem}_pharmacies.xlsx", index=False)
-        q(f"{pr_sql} LIMIT {XLSX_ROWS}").df().to_excel(PER / f"{f.stem}_price_check.xlsx", index=False)
-    n_ph, n_cl, n_fx = q(f"""SELECT count(*), sum(fills_all), sum(fills_client)
-                             FROM pharm_stage WHERE file='{f.name}'""").fetchone()
+        xlsx(q(ph_sql).df(), PER / f"{f.stem}_pharmacies.xlsx")
+        xlsx(q(f"{pr_sql} LIMIT {XLSX_ROWS}").df(), PER / f"{f.stem}_price_check.xlsx")
+    n_ph, n_cl, n_fx = q("SELECT count(*), sum(fills_all), sum(fills_client) FROM cur_pharm").fetchone()
+    q("DROP TABLE cur_pharm"); q("DROP TABLE cur_price")
     print(f"[{i}/{len(files)}] {f.name}  {time.time()-t:,.0f}s  "
-          f"{n_ph:,} pharmacies  {n_cl:,} paid claims  {n_fx:,} {CLIENT} claims")
+          f"{n_ph or 0:,} pharmacies  {n_cl or 0:,} fills (repeats removed)  {n_fx or 0:,} {CLIENT} fills")
 
 print(f"all files done in {(time.time()-t_all)/60:,.1f} min, combining ...")
 
@@ -260,16 +297,16 @@ GROUP BY 1, 2, 3
 for t in ("pharmacies", "price_table", "chain_price_table"):
     q(f"COPY {t} TO '{(OUT / f'book_{t}.parquet').as_posix()}' (FORMAT PARQUET)")
 
-q("SELECT * FROM pharmacies ORDER BY fills_client DESC, fills_all DESC").df() \
-    .to_excel(OUT / "book_pharmacies.xlsx", index=False)
-q(f"SELECT * FROM price_table ORDER BY claims_client DESC, claims_all DESC LIMIT {XLSX_ROWS}").df() \
-    .to_excel(OUT / "book_price_table_check.xlsx", index=False)
+xlsx(q("SELECT * FROM pharmacies ORDER BY fills_client DESC, fills_all DESC").df(), OUT / "book_pharmacies.xlsx")
+xlsx(q(f"SELECT * FROM price_table ORDER BY claims_client DESC, claims_all DESC LIMIT {XLSX_ROWS}").df(), OUT / "book_price_table_check.xlsx")
 
 n_ph, n_fx, n_ret = q("SELECT count(*), sum(used_by_client::INT), sum(phase1_retail::INT) FROM pharmacies").fetchone()
 n_pr, n_pr_fx = q("SELECT count(*), sum((price_source='client')::INT) FROM price_table").fetchone()
 n_ch = q("SELECT count(*) FROM chain_price_table").fetchone()[0]
+kinds = q("SELECT PHR_DISPNSR_TYPE_DESC || ' | ' || PHR_DISPNSR_CLASS_DESC AS kind, count(*) FROM pharmacies GROUP BY 1 ORDER BY 2 DESC").fetchall()
 print(f"""
-pharmacies            {n_ph:>12,}   used by {CLIENT}: {n_fx:,}   retail: {n_ret:,}
+pharmacies            {n_ph:>12,}   used by {CLIENT}: {n_fx:,}   type Community or Retail: {n_ret:,}
+kinds (type | class): """ + ", ".join(f"{k} {n:,}" for k, n in kinds) + f"""
 pharmacy x drug rows  {n_pr:>12,}   priced from {CLIENT} claims: {n_pr_fx:,}
 chain x drug rows     {n_ch:>12,}
 written to {OUT}
