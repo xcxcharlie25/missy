@@ -1,0 +1,3 @@
+https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2020_Gazetteer/2020_Gaz_zcta_national.zip
+
+https://api.census.gov/data/2020/dec/dhc?get=NAME,P1_001N&for=zip%20code%20tabulation%20area
